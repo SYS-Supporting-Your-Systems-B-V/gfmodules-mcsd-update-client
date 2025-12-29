@@ -4,6 +4,7 @@ from fastapi import HTTPException
 from fastapi.encoders import jsonable_encoder
 from typing import Any, Dict, List
 import logging
+import json
 from fhir.resources.R4B.bundle import BundleEntry
 from fhir.resources.R4B.domainresource import DomainResource
 from requests import JSONDecodeError
@@ -23,6 +24,31 @@ from app.services.fhir.utils import collect_errors
 ERR_MSG_FORMAT = "FHIR API error: %s"
 HTTP_ERR_MSG = "An error occurred while processing a FHIR request."
 logger = logging.getLogger(__name__)
+
+def _log_fhir_error_response(response, *, bundle_dump: dict | None = None) -> None:
+    """
+    Log the server error response in a useful way (often an OperationOutcome JSON).
+    """
+    status = getattr(response, "status_code", None)
+    text = getattr(response, "text", "")
+    headers = dict(getattr(response, "headers", {}) or {})
+    content_type = headers.get("Content-Type") or headers.get("content-type")
+
+    # Try JSON first
+    payload = None
+    try:
+        payload = response.json()
+    except ValueError:
+        payload = None
+
+    if payload is not None:
+        logger.error("FHIR API error %s. Response JSON: %s", status, json.dumps(payload, ensure_ascii=False))
+    else:
+        logger.error("FHIR API error %s. Content-Type=%r. Response text: %r", status, content_type, text)
+
+    # Bundle logging can be very large; keep it but consider downgrading to debug if needed
+    if bundle_dump is not None:
+        logger.error("Failed bundle: %s", bundle_dump)
 
 @dataclass
 class FhirApiConfig:
@@ -60,32 +86,28 @@ class FhirApi(HttpService):
         Post a FHIR bundle to the server and return the response as a Bundle object.
         Will return a tuple containing a parsed Bundle and BundleErrors if present
         """
+        bundle_dump = None
         try:
+            bundle_dump = bundle.model_dump()
             response = self.do_request(
-                "POST", json=jsonable_encoder(bundle.model_dump())
+                "POST", json=jsonable_encoder(bundle_dump)
             )
         except Exception as e:
-            logger.error(ERR_MSG_FORMAT.format(e))
+            logger.exception("Exception occurred while posting bundle")
+            logger.error(ERR_MSG_FORMAT, e)  # <-- fix: actually fills %s
+            if bundle_dump is not None:
+                logger.error("Failed bundle: %s", bundle_dump)
             raise HTTPException(status_code=500, detail=str(e))
 
         # Make sure we have a valid HTTP response status
         if response.status_code >= 400:
-            # See if we can get an Operation Outcome from the error response
-            try:
-                data = response.json()
-            except JSONDecodeError:
-                # No json data found, just return generic error
-                logger.error(ERR_MSG_FORMAT.format(response.text))
-                raise HTTPException(status_code=500, detail=HTTP_ERR_MSG)
-
-            # Return a global error
-            logger.error(ERR_MSG_FORMAT.format(data))
+            _log_fhir_error_response(response, bundle_dump=bundle_dump)
             raise HTTPException(status_code=response.status_code, detail=HTTP_ERR_MSG)
 
         # Successful HTTP status. Check if we have a JSON body
         try:
             data = response.json()
-        except JSONDecodeError:
+        except ValueError:
             logger.error("Failed to decode JSON response: %s", response.text)
             raise HTTPException(status_code=response.status_code, detail=HTTP_ERR_MSG)
 
