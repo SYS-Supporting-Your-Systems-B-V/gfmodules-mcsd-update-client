@@ -6,6 +6,15 @@ from app.models.fhir.types import McsdResources
 
 # Constants
 REQUIRED_INTERACTIONS = {"read", "search-type", "history-type"}
+REQUIRED_MCSD_PROFILE_SUFFIXES = {
+    "Organization": {"IHE.mCSD.Organization"},
+    "Practitioner": {"IHE.mCSD.Practitioner"},
+    "PractitionerRole": {"IHE.mCSD.PractitionerRole"},
+    "Location": {"IHE.mCSD.Location"},
+    "HealthcareService": {"IHE.mCSD.HealthcareService"},
+    "OrganizationAffiliation": {"IHE.mCSD.OrganizationAffiliation"},
+    "Endpoint": {"IHE.mCSD.Endpoint"},
+}
 def is_capability_statement_valid(data: Dict[str, Any]) -> bool:
     """
     Check if CapabilityStatement supports mCSD requirements.
@@ -56,7 +65,46 @@ def _validate_mcsd_resources(server_rest: CapabilityStatementRest) -> bool:
         if not REQUIRED_INTERACTIONS.issubset(resource_interactions):
             return False
 
+    return _validate_mcsd_profiles(server_rest)
+
+
+def _validate_mcsd_profiles(server_rest: CapabilityStatementRest) -> bool:
+    """Check if required mCSD profiles are declared for each supported resource."""
+    if not getattr(server_rest, 'resource', None):
+        return False
+
+    resource_by_type: Dict[str, Any] = {
+        resource.type: resource
+        for resource in server_rest.resource  # type: ignore
+        if resource and hasattr(resource, "type")
+    }
+
+    for resource_type, required_profiles in REQUIRED_MCSD_PROFILE_SUFFIXES.items():
+        resource = resource_by_type.get(resource_type)
+        if resource is None:
+            return False
+        declared_profiles = set()
+        profile = getattr(resource, "profile", None)
+        if profile:
+            declared_profiles.add(str(profile))
+        supported_profiles = getattr(resource, "supportedProfile", None)
+        if supported_profiles:
+            declared_profiles.update(str(p) for p in supported_profiles)
+        if not declared_profiles:
+            return False
+        if not _matches_required_profile(declared_profiles, required_profiles):
+            return False
+
     return True
+
+
+def _matches_required_profile(
+    declared_profiles: set[str], required_suffixes: set[str]
+) -> bool:
+    for profile in declared_profiles:
+        if any(profile.endswith(suffix) for suffix in required_suffixes):
+            return True
+    return False
 
 
 def _create_supported_resources_map(server_rest: CapabilityStatementRest) -> Dict[str, set[Any | None]]:

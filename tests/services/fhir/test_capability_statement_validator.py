@@ -37,6 +37,7 @@ def valid_capability_statement() -> Dict[str, Any]:
                 "resource": [
                     {
                         "type": "Organization",
+                        "profile": "http://ihe.net/fhir/StructureDefinition/IHE.mCSD.Organization",
                         "interaction": [
                             {"code": "read"},
                             {"code": "search-type"},
@@ -45,6 +46,7 @@ def valid_capability_statement() -> Dict[str, Any]:
                     },
                     {
                         "type": "Practitioner",
+                        "profile": "http://ihe.net/fhir/StructureDefinition/IHE.mCSD.Practitioner",
                         "interaction": [
                             {"code": "read"},
                             {"code": "search-type"},
@@ -53,6 +55,7 @@ def valid_capability_statement() -> Dict[str, Any]:
                     },
                     {
                         "type": "PractitionerRole",
+                        "profile": "http://ihe.net/fhir/StructureDefinition/IHE.mCSD.PractitionerRole",
                         "interaction": [
                             {"code": "read"},
                             {"code": "search-type"},
@@ -61,6 +64,7 @@ def valid_capability_statement() -> Dict[str, Any]:
                     },
                     {
                         "type": "Location",
+                        "profile": "http://ihe.net/fhir/StructureDefinition/IHE.mCSD.Location",
                         "interaction": [
                             {"code": "read"},
                             {"code": "search-type"},
@@ -69,6 +73,7 @@ def valid_capability_statement() -> Dict[str, Any]:
                     },
                     {
                         "type": "HealthcareService",
+                        "profile": "http://ihe.net/fhir/StructureDefinition/IHE.mCSD.HealthcareService",
                         "interaction": [
                             {"code": "read"},
                             {"code": "search-type"},
@@ -77,6 +82,7 @@ def valid_capability_statement() -> Dict[str, Any]:
                     },
                     {
                         "type": "OrganizationAffiliation",
+                        "profile": "http://ihe.net/fhir/StructureDefinition/IHE.mCSD.OrganizationAffiliation",
                         "interaction": [
                             {"code": "read"},
                             {"code": "search-type"},
@@ -85,6 +91,7 @@ def valid_capability_statement() -> Dict[str, Any]:
                     },
                     {
                         "type": "Endpoint",
+                        "profile": "http://ihe.net/fhir/StructureDefinition/IHE.mCSD.Endpoint",
                         "interaction": [
                             {"code": "read"},
                             {"code": "search-type"},
@@ -165,3 +172,26 @@ def test_resource_without_interactions_fails(
     )
     del org_resource["interaction"]
     assert is_capability_statement_valid(valid_capability_statement) is False
+
+def test_missing_required_profile_fails(
+    valid_capability_statement: Dict[str, Any]
+) -> None:
+    """Test that missing required profile fails validation"""
+    org_resource = next(
+        resource for resource in valid_capability_statement["rest"][0]["resource"]
+        if resource["type"] == "Organization"
+    )
+    del org_resource["profile"]
+    assert is_capability_statement_valid(valid_capability_statement) is False
+
+
+def test_profile_with_different_base_url_passes(
+    valid_capability_statement: Dict[str, Any]
+) -> None:
+    """Test that profile suffix matching allows alternative base URLs."""
+    org_resource = next(
+        resource for resource in valid_capability_statement["rest"][0]["resource"]
+        if resource["type"] == "Organization"
+    )
+    org_resource["profile"] = "https://example.org/fhir/StructureDefinition/IHE.mCSD.Organization"
+    assert is_capability_statement_valid(valid_capability_statement) is True
