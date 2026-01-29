@@ -41,6 +41,7 @@ services:
     stop_signal: SIGKILL
     networks:
       - mcsd_update_client_net
+    restart: unless-stopped
 
   hapi-update-client:
     image: "hapiproject/hapi:latest"
@@ -53,11 +54,52 @@ services:
       - postgres
     networks:
       - mcsd_update_client_net
+    restart: unless-stopped
 
-  hapi-directory:
+  # Can be tested with on the host machine with:
+  # curl -k --resolve mach2.disyepd.com:443:127.0.0.1 https://mach2.disyepd.com/notifiedpull/fhir
+  hapi-notifiedpull-stu3:
     image: "hapiproject/hapi:latest"
     ports:
-      - "8080:8080"
+      - "8082:8082"
+    configs:
+      - source: hapi_notifiedpull_stu3_config
+        target: /app/config/application.yaml
+    depends_on:
+      - postgres
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8082/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+    networks:
+      - mcsd_update_client_net
+    restart: unless-stopped
+
+  # fills the notifiedpull-stu3 server with seed data placed in notifiedpull-stu3.bundle.json
+  notifiedpull-seed:
+    image: curlimages/curl
+    depends_on:
+      hapi-notifiedpull-stu3-health:
+        condition: service_healthy
+    volumes:
+      - ./notifiedpull-stu3.bundle.json:/seed/bundle.json:ro
+    entrypoint:
+      - sh
+      - -c
+      - >
+          curl -f --retry 10 --retry-connrefused --retry-delay 2
+          -H 'Content-Type: application/fhir+json'
+          --data-binary @/seed/bundle.json
+          http://hapi-notifiedpull-stu3:8082/fhir
+    networks:
+      - mcsd_update_client_net
+    restart: "no"
+
+  # Can be tested with on the host machine with:
+  # curl -k --resolve mach2.disyepd.com:443:127.0.0.1 https://mach2.disyepd.com/fhir
+  hapi-directory:
+    image: "hapiproject/hapi:latest"
     configs:
       - source: hapi_directory_config
         target: /app/config/application.yaml
@@ -70,6 +112,42 @@ services:
       retries: 3
     networks:
       - mcsd_update_client_net
+    restart: unless-stopped
+
+  iti-130-publisher:
+    build:
+      context: ../ITI-130
+      dockerfile: Dockerfile
+    depends_on:
+      hapi-directory-health:
+        condition: service_healthy
+    networks:
+      - mcsd_update_client_net
+    restart: "no"
+
+  caddy:
+    build:
+      context: .
+      dockerfile: caddy/Dockerfile
+    ports:
+      - "443:443"
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    secrets:
+      - cloudflare_api_token
+    command:
+      [
+        "sh",
+        "-c",
+        "export CLOUDFLARE_API_TOKEN=$$(cat /run/secrets/cloudflare_api_token) && caddy run --config /etc/caddy/Caddyfile --adapter caddyfile",
+      ]
+    depends_on:
+      - hapi-directory
+    networks:
+      - mcsd_update_client_net
+    restart: unless-stopped
 
   hapi-update-client-health:
     image: curlimages/curl
@@ -90,6 +168,25 @@ services:
       - mcsd_update_client_net
     command: sleep infinity
 
+  hapi-notifiedpull-stu3-health:
+    image: curlimages/curl
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "curl",
+          "-f",
+          "hapi-notifiedpull-stu3:8082/actuator/health/",
+        ]
+      start_period: 100s
+      start_interval: 5s
+    depends_on:
+      - hapi-notifiedpull-stu3
+    stop_signal: SIGKILL
+    networks:
+      - mcsd_update_client_net
+    command: sleep infinity
+
   hapi-directory-health:
     image: curlimages/curl
     healthcheck:
@@ -98,7 +195,7 @@ services:
           "CMD",
           "curl",
           "-f",
-          "http://hapi-directory:8080/actuator/health",
+          "hapi-directory:8080/actuator/health",
         ]
       start_period: 100s
       start_interval: 5s
@@ -135,16 +232,27 @@ services:
       - ./create-dbs.sql:/docker-entrypoint-initdb.d/create-db.sql
     networks:
       - mcsd_update_client_net
+    restart: unless-stopped
 
 configs:
-  hapi_directory_config:
-    file: directory.application.yaml
   mcsd_update_client_conf:
     file: app.conf
   directory_urls_json:
     file: directory_urls.json
   hapi_update_client_config:
     file: client.application.yaml
+  hapi_notifiedpull_stu3_config:
+    file: notifiedpull-stu3.application.yaml
+  hapi_directory_config:
+    file: directory.application.yaml
+
+secrets:
+  cloudflare_api_token:
+    file: ../secrets/cloudflare_api_token
+
+volumes:
+  caddy_data:
+  caddy_config:
 
 networks:
   mcsd_update_client_net:

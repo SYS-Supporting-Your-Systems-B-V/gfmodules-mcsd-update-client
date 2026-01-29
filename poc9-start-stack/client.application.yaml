@@ -1,9 +1,9 @@
 server:
-  port: 8080
+  port: 8081
 
 spring:
   datasource:
-    url: 'jdbc:postgresql://postgres:5432/hapi_directory'
+    url: 'jdbc:postgresql://postgres:5432/hapi_update_client'
     username: postgres
     password: postgres
     driverClassName: org.postgresql.Driver
@@ -17,11 +17,12 @@ hapi:
     tester:
       home:
         id: home
-        name: hapi2 Tester  (8080 for simulation admin directory)
-        server_address: 'http://localhost:8080/fhir'
+        name: hapi2 Tester (8081 for local adresboek)
+        server_address: 'http://10.10.10.198:8081/fhir'
         refuse_to_fetch_third_party_urls: false
         fhir_version: R4
+    allow_external_references: true
     allow_multiple_delete: true
     allow_expunge: true
     delete_expunge_enabled: true
-    allow_external_references: true
+    allow_cascading_deletes: true
