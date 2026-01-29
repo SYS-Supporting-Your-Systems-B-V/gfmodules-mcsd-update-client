@@ -641,7 +641,9 @@ def test_clear_and_add_nodes_skips_existing_adds_new(
 
 
 def test_update_page_builds_groups_and_skips_updated(
-    update_client_service: UpdateClientService, monkeypatch: Any
+    update_client_service: UpdateClientService,
+    directory_dto: DirectoryDto,
+    monkeypatch: Any,
 ) -> None:
     entries = [BundleEntry()]
 
@@ -676,7 +678,7 @@ def test_update_page_builds_groups_and_skips_updated(
     )
 
     updated_nodes = update_client_service.update_page(
-        directory_id="D1",
+        directory=directory_dto,
         resource_type="Organization",
         targets=entries,
         cache_service=MagicMock(),
