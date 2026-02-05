@@ -1,4 +1,7 @@
 mach2.disyepd.com {
+  handle_path /Oauth/* {
+    reverse_proxy nuts-node:8083
+  }
   handle_path /notifiedpull/* {
     reverse_proxy hapi-notifiedpull-stu3:8082
   }
